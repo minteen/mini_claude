@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     api_base_url: str = Field("https://api.anthropic.com", description="API base URL")
     api_version: str = Field("2023-06-01", description="API version")
     model: str = Field("claude-3-opus-20240229", description="Default model to use")
+    system_prompt: Optional[str] = Field(None, description="Default system prompt")
 
     # Paths
     config_dir: Path = Field(default_factory=get_default_config_dir)

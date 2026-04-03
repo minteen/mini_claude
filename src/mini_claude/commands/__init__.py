@@ -1,6 +1,7 @@
 """Command implementations for MiniClaude."""
 
 from mini_claude.commands.base import Command, CommandGroup
+from mini_claude.commands.chat import ChatCommand
 from mini_claude.commands.config import (
     AuthCommandGroup,
     AuthStatusCommand,
@@ -36,6 +37,7 @@ __all__ = [
     "discover_commands",
     "get_registry",
     "HelpCommand",
+    "ChatCommand",
     "ConfigCommandGroup",
     "ConfigListCommand",
     "ConfigGetCommand",

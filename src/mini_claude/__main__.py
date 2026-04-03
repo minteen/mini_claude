@@ -12,6 +12,7 @@ from mini_claude.commands import (
     HelpCommand,
     ConfigCommandGroup,
     AuthCommandGroup,
+    ChatCommand,
     ToolCommandGroup,
 )
 
@@ -53,6 +54,7 @@ def main(
 HelpCommand().register(app)
 ConfigCommandGroup().register(app)
 AuthCommandGroup().register(app)
+ChatCommand().register(app)
 ToolCommandGroup().register(app)
 
 
