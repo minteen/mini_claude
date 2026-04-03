@@ -14,6 +14,16 @@ from mini_claude.services.auth import (
     mask_api_key,
     validate_api_key,
 )
+from mini_claude.services.conversation import (
+    Conversation,
+    ConversationManager,
+    ContentBlock,
+    Message,
+    TextContent,
+    ToolCallContent,
+    ToolResultContent,
+    get_conversation_manager,
+)
 from mini_claude.services.models import (
     AssistantMessage,
     Choice,
@@ -25,12 +35,12 @@ from mini_claude.services.models import (
     FunctionDefinition,
     FunctionParameters,
     ImageUrlContent,
-    Message,
+    Message as APIMessage,
     OpenAIChatCompletionChunk,
     OpenAIChatCompletionRequest,
     OpenAIChatCompletionResponse,
     SystemMessage,
-    TextContent,
+    TextContent as APITextContent,
     ToolCall,
     ToolCallFunction,
     ToolChoice,
@@ -53,14 +63,23 @@ __all__ = [
     "get_api_key",
     "mask_api_key",
     "validate_api_key",
+    # Conversation
+    "Conversation",
+    "ConversationManager",
+    "ContentBlock",
+    "Message",
+    "TextContent",
+    "ToolCallContent",
+    "ToolResultContent",
+    "get_conversation_manager",
     # Models - Messages
     "UserMessage",
     "AssistantMessage",
     "SystemMessage",
     "ToolMessage",
-    "Message",
+    "APIMessage",
     # Models - Content
-    "TextContent",
+    "APITextContent",
     "ImageUrlContent",
     "ContentPart",
     # Models - Tools

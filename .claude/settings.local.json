@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mini-claude test-tools:*)",
+      "Bash(mini-claude:*)",
+      "Bash(pip install:*)"
+    ]
+  }
+}
