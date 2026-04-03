@@ -8,6 +8,11 @@ from rich.console import Console
 from rich.panel import Panel
 
 from mini_claude import __version__
+from mini_claude.commands import (
+    HelpCommand,
+    ConfigCommandGroup,
+    ToolCommandGroup,
+)
 
 # Initialize Typer app
 app = typer.Typer(
@@ -15,6 +20,7 @@ app = typer.Typer(
     help="A lightweight Claude Code CLI implementation in Python",
     add_completion=False,
     rich_markup_mode="rich",
+    no_args_is_help=True,
 )
 
 console = Console()
@@ -40,6 +46,12 @@ def main(
 ) -> None:
     """MiniClaude - A lightweight Claude Code CLI implementation."""
     pass
+
+
+# Register commands manually (for reliable discovery)
+HelpCommand().register(app)
+ConfigCommandGroup().register(app)
+ToolCommandGroup().register(app)
 
 
 @app.command(name="hello")
