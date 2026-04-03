@@ -11,6 +11,7 @@ from mini_claude import __version__
 from mini_claude.commands import (
     HelpCommand,
     ConfigCommandGroup,
+    AuthCommandGroup,
     ToolCommandGroup,
 )
 
@@ -51,6 +52,7 @@ def main(
 # Register commands manually (for reliable discovery)
 HelpCommand().register(app)
 ConfigCommandGroup().register(app)
+AuthCommandGroup().register(app)
 ToolCommandGroup().register(app)
 
 

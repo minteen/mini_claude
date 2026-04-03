@@ -2,6 +2,10 @@
 
 from mini_claude.commands.base import Command, CommandGroup
 from mini_claude.commands.config import (
+    AuthCommandGroup,
+    AuthStatusCommand,
+    AuthLoginCommand,
+    AuthLogoutCommand,
     ConfigCommandGroup,
     ConfigListCommand,
     ConfigGetCommand,
@@ -38,6 +42,10 @@ __all__ = [
     "ConfigSetCommand",
     "ConfigUnsetCommand",
     "ConfigEditCommand",
+    "AuthCommandGroup",
+    "AuthStatusCommand",
+    "AuthLoginCommand",
+    "AuthLogoutCommand",
     "ToolCommandGroup",
     "ToolReadCommand",
     "ToolWriteCommand",

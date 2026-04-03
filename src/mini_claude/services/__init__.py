@@ -8,6 +8,12 @@ from mini_claude.services.api_client import (
     OpenAIServerError,
     get_client,
 )
+from mini_claude.services.auth import (
+    APIKeyManager,
+    get_api_key,
+    mask_api_key,
+    validate_api_key,
+)
 from mini_claude.services.models import (
     AssistantMessage,
     Choice,
@@ -42,6 +48,11 @@ __all__ = [
     "OpenAIRateLimitError",
     "OpenAIServerError",
     "get_client",
+    # Auth
+    "APIKeyManager",
+    "get_api_key",
+    "mask_api_key",
+    "validate_api_key",
     # Models - Messages
     "UserMessage",
     "AssistantMessage",
