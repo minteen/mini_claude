@@ -11,6 +11,7 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from mini_claude.commands.base import Command
 from mini_claude.config.settings import settings
@@ -24,6 +25,8 @@ from mini_claude.services import (
     get_conversation_manager,
     get_api_key,
 )
+from mini_claude.services.execution_loop import ExecutionLoop, get_execution_loop
+from mini_claude.services.tool_schema_generator import generate_all_tool_schemas
 
 console = Console()
 
@@ -44,8 +47,9 @@ class ChatCommand(Command):
             model: Optional[str] = typer.Option(None, "--model", "-m", help="Model to use"),
             system_prompt: Optional[str] = typer.Option(None, "--system", "-s", help="System prompt"),
             stream: bool = typer.Option(True, "--stream/--no-stream", help="Stream responses"),
+            tools: bool = typer.Option(True, "--tools/--no-tools", help="Enable/disable tool usage"),
         ) -> None:
-            self._run(message, conversation_id, model, system_prompt, stream)
+            self._run(message, conversation_id, model, system_prompt, stream, tools)
 
     def _run(
         self,
@@ -54,6 +58,7 @@ class ChatCommand(Command):
         model: Optional[str],
         system_prompt: Optional[str],
         stream: bool,
+        tools: bool,
     ) -> None:
         """Main chat entry point."""
         # Check API key
@@ -98,10 +103,10 @@ class ChatCommand(Command):
         # Determine mode
         if message:
             # One-shot mode
-            asyncio.run(self._one_shot(conv, message, model, stream))
+            asyncio.run(self._one_shot(conv, message, model, stream, tools))
         else:
             # Interactive REPL mode
-            asyncio.run(self._repl(conv, model, stream))
+            asyncio.run(self._repl(conv, model, stream, tools))
 
     async def _one_shot(
         self,
@@ -109,16 +114,20 @@ class ChatCommand(Command):
         user_message: str,
         model: Optional[str],
         stream: bool,
+        tools: bool,
     ) -> None:
         """One-shot chat mode - single question and answer."""
         # Add user message
         conv.add_user_message(user_message)
 
-        # Send to LLM
-        if stream:
-            await self._stream_response(conv, model)
+        # Send to LLM with tools
+        if tools:
+            await self._response_with_tools(conv, model)
         else:
-            await self._non_stream_response(conv, model)
+            if stream:
+                await self._stream_response(conv, model)
+            else:
+                await self._non_stream_response(conv, model)
 
         # Save conversation
         manager = get_conversation_manager()
@@ -132,12 +141,14 @@ class ChatCommand(Command):
         conv: Conversation,
         model: Optional[str],
         stream: bool,
+        tools: bool,
     ) -> None:
         """Interactive REPL chat mode."""
         console.print()
         console.print(Panel(
             "[bold cyan]MiniClaude Chat[/bold cyan]\n\n"
-            "Type your message and press Enter.\n"
+            f"Type your message and press Enter.\n"
+            f"Tools: [{'green' if tools else 'yellow'}]{'ENABLED' if tools else 'DISABLED'}[/{'green' if tools else 'yellow'}]\n"
             "Type [yellow]/help[/yellow] for available commands.\n"
             "Type [yellow]/exit[/yellow] or press [yellow]Ctrl+C[/yellow] to quit.",
             border_style="cyan",
@@ -180,10 +191,13 @@ class ChatCommand(Command):
                 conv.add_user_message(user_input)
 
                 # Send to LLM
-                if stream:
-                    await self._stream_response(conv, model)
+                if tools:
+                    await self._response_with_tools(conv, model)
                 else:
-                    await self._non_stream_response(conv, model)
+                    if stream:
+                        await self._stream_response(conv, model)
+                    else:
+                        await self._non_stream_response(conv, model)
 
                 # Save conversation
                 manager.save(conv)
@@ -306,6 +320,14 @@ class ChatCommand(Command):
                 content = msg.content if isinstance(msg.content, str) else ""
                 md = Markdown(content)
                 console.print(Panel(md, title="[bold green]Assistant[/bold green]", border_style="green"))
+            elif msg.role == "tool":
+                # Show tool result
+                content = msg.content if isinstance(msg.content, str) else ""
+                console.print(Panel(
+                    content,
+                    title="[bold yellow]Tool Result[/bold yellow]",
+                    border_style="yellow",
+                ))
             console.print()
 
     def _show_error(self, e: Exception) -> None:
@@ -345,6 +367,67 @@ class ChatCommand(Command):
             ))
 
         console.print()
+
+    async def _response_with_tools(self, conv: Conversation, model: Optional[str]) -> None:
+        """Get response with tool calling support."""
+        try:
+            # Get available tools
+            tools = generate_all_tool_schemas()
+
+            if tools:
+                console.print(f"[dim]Available tools: {', '.join([t.function.name for t in tools])}[/dim]")
+                console.print()
+
+            # Get execution loop
+            loop = get_execution_loop()
+
+            # Show thinking indicator
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                task = progress.add_task("Thinking...", total=None)
+
+                # Run conversation with tools
+                final_conv = await loop.run_conversation(
+                    conversation=conv,
+                    tools=tools,
+                    stream=False,
+                )
+
+                progress.update(task, description="Done!")
+
+            # Update our conversation reference
+            conv.messages = final_conv.messages
+
+            # Show the conversation history (including assistant messages and tool results)
+            # Find the last user message index
+            last_user_idx = -1
+            for i, msg in enumerate(conv.messages):
+                if msg.role == "user":
+                    last_user_idx = i
+
+            # Show messages after the last user message
+            if last_user_idx >= 0:
+                for msg in conv.messages[last_user_idx + 1:]:
+                    if msg.role == "assistant":
+                        content = msg.content if isinstance(msg.content, str) else ""
+                        if content:
+                            md = Markdown(content)
+                            console.print(Panel(md, title="[bold green]Assistant[/bold green]", border_style="green"))
+                            console.print()
+                    elif msg.role == "tool":
+                        content = msg.content if isinstance(msg.content, str) else ""
+                        console.print(Panel(
+                            content,
+                            title="[bold yellow]Tool Result[/bold yellow]",
+                            border_style="yellow",
+                        ))
+                        console.print()
+
+        except Exception as e:
+            self._show_error(e)
 
     async def _stream_response(self, conv: Conversation, model: Optional[str]) -> None:
         """Stream response from LLM with live updates."""

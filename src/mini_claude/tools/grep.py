@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
-from mini_claude.core.tool import Tool, ToolResult
+from mini_claude.tools.base import Tool, ToolResult
 
 
 class GrepTool(Tool):

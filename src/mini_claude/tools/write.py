@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from mini_claude.core.tool import Tool, ToolResult
+from mini_claude.tools.base import Tool, ToolResult
 
 
 class WriteTool(Tool):

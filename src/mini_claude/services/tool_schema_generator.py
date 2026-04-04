@@ -133,8 +133,8 @@ def extract_tool_schema(tool_class: type) -> ToolDefinition:
     required: List[str] = []
 
     for param_name, param in sig.parameters.items():
-        # Skip 'self' parameter
-        if param_name == "self":
+        # Skip 'self' and '**kwargs' parameters
+        if param_name == "self" or param_name == "kwargs":
             continue
 
         # Convert Python type to JSON Schema

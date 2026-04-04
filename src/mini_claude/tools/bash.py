@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from mini_claude.core.tool import Tool, ToolResult
+from mini_claude.tools.base import Tool, ToolResult
 
 
 def _get_shell_info() -> Tuple[str, str]:

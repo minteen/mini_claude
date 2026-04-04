@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from mini_claude.core.tool import Tool, ToolResult
+from mini_claude.tools.base import Tool, ToolResult
 
 
 def _normalize_newlines(text: str) -> str:

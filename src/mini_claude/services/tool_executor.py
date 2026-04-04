@@ -1,6 +1,7 @@
 """Execute tool calls from LLM responses."""
 
 import asyncio
+import inspect
 import json
 import traceback
 from typing import Any, Dict, List, Optional
@@ -72,10 +73,10 @@ class ToolExecutor:
                 )
 
             # Validate required parameters
-            sig = tool_class.execute.__annotations__
+            sig = inspect.signature(tool_class.execute)
             required_params = [
-                name for name, param in tool_class.execute.__code__.co_varnames[:tool_class.execute.__code__.co_argcount]
-                if name != "self" and param.default == inspect.Parameter.empty
+                name for name, param in sig.parameters.items()
+                if name != "self" and name != "kwargs" and param.default == inspect.Parameter.empty
             ]
 
             missing_params = [param for param in required_params if param not in args]
