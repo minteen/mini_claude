@@ -1,4 +1,42 @@
-"""Generate OpenAI-compatible tool schemas from Tool classes."""
+"""
+Generate OpenAI-compatible tool schemas from Tool classes.
+
+This module handles automatic discovery of Tool subclasses and conversion
+of their signatures to OpenAI-compatible function schemas that can be
+used by the AI assistant.
+
+The discovery process:
+1. Scans the `mini_claude.tools` package for Python modules
+2. Imports each module and looks for Tool subclasses
+3. Extracts metadata (name, description) from the class
+4. Parses the `execute()` method signature for parameter definitions
+5. Converts Python types to JSON Schema types
+6. Returns complete ToolDefinition objects ready for the API
+
+Example:
+    ```python
+    from mini_claude.services.tool_schema_generator import (
+        discover_tools,
+        generate_all_tool_schemas,
+        get_tool_class_by_name,
+    )
+
+    # Discover all tools
+    tools = discover_tools()
+    print(f"Found {len(tools)} tools")
+
+    # Generate schemas for API
+    schemas = generate_all_tool_schemas()
+    for schema in schemas:
+        print(f"Tool: {schema.function.name}")
+
+    # Get a specific tool class
+    ReadTool = get_tool_class_by_name("Read")
+    if ReadTool:
+        tool = ReadTool()
+        result = await tool.execute(file_path="example.txt")
+    ```
+"""
 
 import importlib
 import inspect
@@ -18,8 +56,16 @@ def discover_tools() -> Dict[str, type]:
     """
     Discover all Tool subclasses in the tools package.
 
+    This function scans the `mini_claude.tools` package directory and
+    dynamically imports each module. It then finds all non-abstract
+    subclasses of Tool and returns them in a dictionary.
+
+    Modules starting with underscore (_) are skipped to allow for
+    private/internal modules.
+
     Returns:
-        Dictionary mapping tool name to Tool class.
+        Dictionary mapping tool class name to Tool class object.
+        Example: {"ReadTool": ReadTool, "WriteTool": WriteTool}
     """
     tools = {}
 
@@ -56,13 +102,20 @@ def discover_tools() -> Dict[str, type]:
 
 def python_type_to_json_schema(python_type: Any) -> Dict[str, Any]:
     """
-    Convert Python type to JSON Schema.
+    Convert Python type annotation to JSON Schema.
+
+    Handles common Python types and converts them to their equivalent
+    JSON Schema representations. Supports:
+    - Primitive types: str, int, float, bool, None
+    - Generic types: List[T], Dict, Optional[T]
+    - Unknown types default to string for safety
 
     Args:
-        python_type: Python type annotation.
+        python_type: Python type annotation from function signature.
 
     Returns:
-        JSON Schema property definition.
+        JSON Schema property definition as a dictionary.
+        Example: {"type": "string", "description": "..."}
     """
     origin = get_origin(python_type)
 
@@ -106,15 +159,25 @@ def extract_tool_schema(tool_class: type) -> ToolDefinition:
     """
     Extract OpenAI-compatible schema from a Tool class.
 
+    This method introspects a Tool class to build a complete
+    OpenAI-compatible function definition. It extracts:
+    - Tool name from the `name` class attribute
+    - Description from the `description` attribute or docstring
+    - Parameters from the `execute()` method signature
+    - Parameter types and optional/default status
+
     Args:
         tool_class: Tool class to extract schema from.
 
     Returns:
-        ToolDefinition for the tool.
+        ToolDefinition object ready for use with the OpenAI API.
+
+    Raises:
+        ValueError: If the tool class doesn't have an `execute` method.
     """
     # Get tool name and description
     tool_name = getattr(tool_class, "name", tool_class.__name__)
-    tool_description = getattr(tool_class, "help", "")
+    tool_description = getattr(tool_class, "description", "")
 
     # Try to get description from docstring
     if hasattr(tool_class, "execute"):
@@ -177,8 +240,12 @@ def generate_all_tool_schemas() -> List[ToolDefinition]:
     """
     Generate schemas for all discovered tools.
 
+    This is a convenience function that combines `discover_tools()` and
+    `extract_tool_schema()` to get complete tool definitions for all
+    available tools. Tools that fail during schema extraction are skipped.
+
     Returns:
-        List of ToolDefinition objects.
+        List of ToolDefinition objects, one for each discovered tool.
     """
     tools = discover_tools()
     schemas = []
@@ -196,10 +263,14 @@ def generate_all_tool_schemas() -> List[ToolDefinition]:
 
 def get_tool_class_by_name(tool_name: str) -> Optional[type]:
     """
-    Get Tool class by name.
+    Get Tool class by its user-facing name.
+
+    Looks up a tool by the `name` attribute (not the class name).
+    This is the name that appears in the tool schema and is used
+    by the AI assistant to invoke the tool.
 
     Args:
-        tool_name: Name of the tool.
+        tool_name: Name of the tool (e.g., "Read", "Write").
 
     Returns:
         Tool class if found, None otherwise.

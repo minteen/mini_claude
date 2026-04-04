@@ -381,13 +381,59 @@ class ChatCommand(Command):
             # Get execution loop
             loop = get_execution_loop()
 
-            # Show thinking indicator
+            # Track message counts to detect new messages
+            initial_message_count = len(conv.messages)
+
+            # State for tracking what we've already shown
+            shown_message_indices = set()
+
+            # Setup callbacks for real-time display
+            def on_thinking() -> None:
+                """Called when LLM is thinking."""
+                console.print("[dim]Thinking...[/dim]")
+
+            def on_tool_call(tool_calls: list) -> None:
+                """Called when LLM decides to call tools."""
+                console.print()
+                for tc in tool_calls:
+                    tool_name = tc.function.name
+                    try:
+                        args = tc.function.arguments
+                        # Try to pretty print JSON args
+                        import json
+                        args_obj = json.loads(args)
+                        args_str = json.dumps(args_obj, indent=2, ensure_ascii=False)
+                    except:
+                        args_str = args
+
+                    console.print(f"[bold blue]🔧 Calling Tool:[/bold blue] [cyan]{tool_name}[/cyan]")
+                    console.print(f"[dim]Arguments:[/dim]")
+                    console.print(Panel(args_str, border_style="blue", padding=(0, 1)))
+
+            def on_tool_result(tool_name: str, content: str, is_error: bool) -> None:
+                """Called when a tool completes."""
+                # We'll show tool results from the conversation instead
+                pass
+
+            def on_assistant_message(content: str) -> None:
+                """Called when assistant sends a message."""
+                # We'll show assistant messages from the conversation
+                pass
+
+            # Register callbacks
+            loop.on_thinking = on_thinking
+            loop.on_tool_call = on_tool_call
+            loop.on_tool_result = on_tool_result
+            loop.on_assistant_message = on_assistant_message
+
+            # Show thinking indicator and run conversation
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
                 console=console,
+                transient=True,
             ) as progress:
-                task = progress.add_task("Thinking...", total=None)
+                task = progress.add_task("Processing...", total=None)
 
                 # Run conversation with tools
                 final_conv = await loop.run_conversation(
@@ -401,30 +447,36 @@ class ChatCommand(Command):
             # Update our conversation reference
             conv.messages = final_conv.messages
 
-            # Show the conversation history (including assistant messages and tool results)
-            # Find the last user message index
-            last_user_idx = -1
-            for i, msg in enumerate(conv.messages):
-                if msg.role == "user":
-                    last_user_idx = i
-
-            # Show messages after the last user message
-            if last_user_idx >= 0:
-                for msg in conv.messages[last_user_idx + 1:]:
-                    if msg.role == "assistant":
-                        content = msg.content if isinstance(msg.content, str) else ""
-                        if content:
-                            md = Markdown(content)
-                            console.print(Panel(md, title="[bold green]Assistant[/bold green]", border_style="green"))
-                            console.print()
-                    elif msg.role == "tool":
-                        content = msg.content if isinstance(msg.content, str) else ""
-                        console.print(Panel(
-                            content,
-                            title="[bold yellow]Tool Result[/bold yellow]",
-                            border_style="yellow",
-                        ))
+            # Show all new messages that haven't been shown yet
+            console.print()
+            for i, msg in enumerate(conv.messages[initial_message_count:], start=initial_message_count):
+                if msg.role == "assistant":
+                    content = msg.content if isinstance(msg.content, str) else ""
+                    if content:
+                        md = Markdown(content)
+                        console.print(Panel(md, title="[bold green]🤖 Assistant[/bold green]", border_style="green"))
                         console.print()
+                elif msg.role == "tool":
+                    # Extract tool result content - could be string or list of ToolResultContent
+                    content = ""
+                    tool_call_id = "unknown"
+                    if isinstance(msg.content, str):
+                        content = msg.content
+                    elif isinstance(msg.content, list):
+                        # Handle list of content blocks
+                        from mini_claude.services.conversation import ToolResultContent
+                        for block in msg.content:
+                            if isinstance(block, ToolResultContent):
+                                content = block.content
+                                tool_call_id = block.tool_call_id
+                                break
+
+                    console.print(Panel(
+                        content,
+                        title=f"[bold yellow]🔧 Tool Result[/bold yellow] ([dim]{tool_call_id[:8]}...[/dim])",
+                        border_style="yellow",
+                    ))
+                    console.print()
 
         except Exception as e:
             self._show_error(e)

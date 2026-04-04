@@ -1,4 +1,39 @@
-"""Service layer for MiniClaude (OpenAI-compatible)."""
+"""
+Service layer for MiniClaude (OpenAI-compatible).
+
+This package provides the core services for MiniClaude, including:
+
+- API Client: OpenAI-compatible API client with streaming support
+- Authentication: API key management and validation
+- Conversation: Multi-turn dialogue management with persistence
+- Models: Pydantic models for API requests/responses
+- Tool Execution: Tool discovery, schema generation, and execution
+- Execution Loop: Conversation loop with automatic tool calling
+
+Example:
+    ```python
+    from mini_claude.services import (
+        Conversation,
+        OpenAIClient,
+        get_conversation_manager,
+    )
+
+    # Create a conversation
+    conv = Conversation()
+    conv.add_user_message("Hello!")
+
+    # Use the API client
+    async with OpenAIClient() as client:
+        response = await client.create_chat_completion(
+            model="claude-3-opus",
+            messages=conv.get_messages_for_api(),
+        )
+
+    # Save the conversation
+    manager = get_conversation_manager()
+    manager.save(conv)
+    ```
+"""
 
 from mini_claude.services.api_client import (
     OpenAIClient,
