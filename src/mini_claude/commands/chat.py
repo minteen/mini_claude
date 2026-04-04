@@ -1,6 +1,7 @@
 """Chat command for MiniClaude - interactive AI assistant."""
 
 import asyncio
+import json
 import sys
 import traceback
 from typing import Optional
@@ -384,47 +385,126 @@ class ChatCommand(Command):
             # Track message counts to detect new messages
             initial_message_count = len(conv.messages)
 
-            # State for tracking what we've already shown
-            shown_message_indices = set()
+            # Current iteration for display
+            current_iteration = 0
 
-            # Setup callbacks for real-time display
-            def on_thinking() -> None:
-                """Called when LLM is thinking."""
-                console.print("[dim]Thinking...[/dim]")
+            # Setup callbacks for real-time display with structured output
+            def on_loop_start() -> None:
+                """Called when execution loop starts."""
+                console.print()
+                console.print(Panel(
+                    "[bold cyan]🧠 Starting Agent Reasoning Loop[/bold cyan]",
+                    border_style="cyan",
+                ))
+                console.print()
+
+            def on_thinking(iteration: int) -> None:
+                """Called when LLM is thinking (waiting for response)."""
+                nonlocal current_iteration
+                current_iteration = iteration
+
+                # Show a nice thinking header with iteration count
+                console.print()
+                console.print(f"[bold magenta]{'='*60}[/bold magenta]")
+                console.print(f"[bold magenta]🔄 Step {iteration} - Processing[/bold magenta]")
+                console.print(f"[bold magenta]{'='*60}[/bold magenta]")
+                console.print()
+
+            def on_thought_content(content: str, has_tool_calls: bool) -> None:
+                """Called when LLM's thought content is received."""
+                status_text = " (will use tools)" if has_tool_calls else " (final answer)"
+
+                if content and content.strip():
+                    # Show the thinking content
+                    console.print(Panel(
+                        Markdown(content),
+                        title=f"[bold magenta]💭 Thought{status_text}[/bold magenta]",
+                        border_style="magenta",
+                        padding=(1, 1),
+                    ))
+                    console.print()
+                elif has_tool_calls:
+                    # When content is empty but there are tool calls, show a decision message
+                    console.print(Panel(
+                        "The LLM decided to call tools to gather more information.",
+                        title=f"[bold magenta]💭 Decision{status_text}[/bold magenta]",
+                        border_style="magenta",
+                        padding=(1, 1),
+                    ))
+                    console.print()
 
             def on_tool_call(tool_calls: list) -> None:
                 """Called when LLM decides to call tools."""
                 console.print()
-                for tc in tool_calls:
+                console.print(f"[bold blue]✨ Decision: Calling {len(tool_calls)} tool(s)[/bold blue]")
+                console.print()
+
+                for tc_idx, tc in enumerate(tool_calls, 1):
                     tool_name = tc.function.name
+                    tool_call_id = tc.id
+                    args_str = tc.function.arguments
+
                     try:
-                        args = tc.function.arguments
                         # Try to pretty print JSON args
-                        import json
-                        args_obj = json.loads(args)
+                        args_obj = json.loads(args_str)
                         args_str = json.dumps(args_obj, indent=2, ensure_ascii=False)
-                    except:
-                        args_str = args
+                    except (json.JSONDecodeError, Exception):
+                        # If parsing fails, just use the original string
+                        pass
 
-                    console.print(f"[bold blue]🔧 Calling Tool:[/bold blue] [cyan]{tool_name}[/cyan]")
-                    console.print(f"[dim]Arguments:[/dim]")
-                    console.print(Panel(args_str, border_style="blue", padding=(0, 1)))
+                    # Show tool call with nice formatting
+                    console.print(Panel(
+                        args_str,
+                        title=f"[bold blue]🔧 Tool {tc_idx}: [cyan]{tool_name}[/cyan][/bold blue]",
+                        subtitle=f"[dim]ID: {tool_call_id[:12]}...[/dim]",
+                        border_style="blue",
+                        padding=(1, 1),
+                    ))
+                    console.print()
 
-            def on_tool_result(tool_name: str, content: str, is_error: bool) -> None:
+            def on_tool_result(tool_name: str, content: str, is_error: bool, tool_call_id: str) -> None:
                 """Called when a tool completes."""
-                # We'll show tool results from the conversation instead
-                pass
+                status_emoji = "❌" if is_error else "✅"
+                status_text = "[red]Error[/red]" if is_error else "[green]Success[/green]"
+                border_color = "red" if is_error else "green"
+
+                # Truncate long content for display
+                display_content = content
+                if len(display_content) > 2000:
+                    display_content = display_content[:2000] + "\n... [content truncated]"
+
+                console.print(Panel(
+                    display_content,
+                    title=f"[bold {border_color}]{status_emoji} Result: [cyan]{tool_name}[/cyan] - {status_text}[/bold {border_color}]",
+                    subtitle=f"[dim]ID: {tool_call_id[:12]}...[/dim]",
+                    border_style=border_color,
+                    padding=(1, 1),
+                ))
+                console.print()
 
             def on_assistant_message(content: str) -> None:
                 """Called when assistant sends a message."""
-                # We'll show assistant messages from the conversation
-                pass
+                pass  # We'll show this at the end
+
+            def on_loop_end(total_tool_calls: int) -> None:
+                """Called when execution loop ends."""
+                console.print()
+                console.print(Panel(
+                    f"[bold cyan]✅ Agent Reasoning Complete[/bold cyan]\n\n"
+                    f"Total tool calls: [bold]{total_tool_calls}[/bold]\n"
+                    f"Total steps: [bold]{current_iteration}[/bold]",
+                    border_style="cyan",
+                ))
+                console.print()
 
             # Register callbacks
+            loop.on_loop_start = on_loop_start
             loop.on_thinking = on_thinking
+            loop.on_thought_content = on_thought_content
             loop.on_tool_call = on_tool_call
             loop.on_tool_result = on_tool_result
             loop.on_assistant_message = on_assistant_message
+            loop.on_loop_end = on_loop_end
 
             # Show thinking indicator and run conversation
             with Progress(
@@ -433,7 +513,7 @@ class ChatCommand(Command):
                 console=console,
                 transient=True,
             ) as progress:
-                task = progress.add_task("Processing...", total=None)
+                task = progress.add_task("Agent is working...", total=None)
 
                 # Run conversation with tools
                 final_conv = await loop.run_conversation(
@@ -447,36 +527,36 @@ class ChatCommand(Command):
             # Update our conversation reference
             conv.messages = final_conv.messages
 
-            # Show all new messages that haven't been shown yet
-            console.print()
-            for i, msg in enumerate(conv.messages[initial_message_count:], start=initial_message_count):
-                if msg.role == "assistant":
-                    content = msg.content if isinstance(msg.content, str) else ""
-                    if content:
-                        md = Markdown(content)
-                        console.print(Panel(md, title="[bold green]🤖 Assistant[/bold green]", border_style="green"))
-                        console.print()
-                elif msg.role == "tool":
-                    # Extract tool result content - could be string or list of ToolResultContent
-                    content = ""
-                    tool_call_id = "unknown"
-                    if isinstance(msg.content, str):
-                        content = msg.content
-                    elif isinstance(msg.content, list):
-                        # Handle list of content blocks
-                        from mini_claude.services.conversation import ToolResultContent
-                        for block in msg.content:
-                            if isinstance(block, ToolResultContent):
-                                content = block.content
-                                tool_call_id = block.tool_call_id
-                                break
+            # Show final answer if it was not already shown (no tool calls case)
+            # Find the last message to check if it's a final answer without tools
+            has_tool_calls_in_conversation = False
+            last_assistant_content = None
 
-                    console.print(Panel(
-                        content,
-                        title=f"[bold yellow]🔧 Tool Result[/bold yellow] ([dim]{tool_call_id[:8]}...[/dim])",
-                        border_style="yellow",
-                    ))
-                    console.print()
+            for msg in conv.messages[initial_message_count:]:
+                if msg.role == "assistant":
+                    last_assistant_content = msg.content if isinstance(msg.content, str) else ""
+
+            # Check if any tool calls were made
+            for msg in conv.messages:
+                if msg.role == "tool":
+                    has_tool_calls_in_conversation = True
+                    break
+
+            # If no tool calls were made and we have a final answer, show it with the final answer header
+            if not has_tool_calls_in_conversation and last_assistant_content and not last_assistant_content.startswith("[System]"):
+                console.print()
+                console.print(Panel(
+                    "[bold green]🎯 Final Answer[/bold green]",
+                    border_style="green",
+                ))
+                console.print()
+                md = Markdown(last_assistant_content)
+                console.print(Panel(
+                    md,
+                    title="[bold green]🤖 Assistant[/bold green]",
+                    border_style="green",
+                ))
+                console.print()
 
         except Exception as e:
             self._show_error(e)

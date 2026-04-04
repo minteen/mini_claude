@@ -19,9 +19,12 @@ class ExecutionLoopError(Exception):
 
 # Callback types
 OnToolCallCallback = Optional[Callable[[List[ToolCall]], None]]
-OnToolResultCallback = Optional[Callable[[str, str, bool], None]]
-OnThinkingCallback = Optional[Callable[[], None]]
+OnToolResultCallback = Optional[Callable[[str, str, bool, str], None]]
+OnThinkingCallback = Optional[Callable[[int], None]]
+OnThoughtContentCallback = Optional[Callable[[str, bool], None]]
 OnAssistantMessageCallback = Optional[Callable[[str], None]]
+OnLoopStartCallback = Optional[Callable[[], None]]
+OnLoopEndCallback = Optional[Callable[[int], None]]
 
 
 class ExecutionLoop:
@@ -46,17 +49,26 @@ class ExecutionLoop:
         self.keep_system_messages = keep_system_messages
 
         # Callbacks for real-time updates
+        self.on_loop_start: OnLoopStartCallback = None
+        """Called when the execution loop starts."""
+
         self.on_thinking: OnThinkingCallback = None
-        """Called when the LLM is thinking/processing."""
+        """Called when the LLM is thinking/processing. Argument: iteration count."""
+
+        self.on_thought_content: OnThoughtContentCallback = None
+        """Called when the LLM's thought content is received. Arguments: (content, has_tool_calls)."""
 
         self.on_tool_call: OnToolCallCallback = None
         """Called when the LLM decides to call tools."""
 
         self.on_tool_result: OnToolResultCallback = None
-        """Called when a tool execution completes. Arguments: (tool_name, content, is_error)."""
+        """Called when a tool execution completes. Arguments: (tool_name, content, is_error, tool_call_id)."""
 
         self.on_assistant_message: OnAssistantMessageCallback = None
         """Called when the assistant sends a message."""
+
+        self.on_loop_end: OnLoopEndCallback = None
+        """Called when the execution loop ends. Argument: total tool calls made."""
 
     async def _send_to_llm(
         self,
@@ -130,6 +142,11 @@ class ExecutionLoop:
 
         executor = ToolExecutor()
         tool_call_count = 0
+        iteration = 0
+
+        # Notify loop start
+        if self.on_loop_start:
+            self.on_loop_start()
 
         # Use provided client or create a new one
         should_close_client = False
@@ -140,9 +157,11 @@ class ExecutionLoop:
         try:
             async with client if should_close_client else client:
                 while tool_call_count < self.max_tool_calls:
-                    # Notify thinking callback
+                    iteration += 1
+
+                    # Notify thinking callback with iteration count
                     if self.on_thinking:
-                        self.on_thinking()
+                        self.on_thinking(iteration)
 
                     # Send conversation to LLM
                     response = await self._send_to_llm(
@@ -157,6 +176,18 @@ class ExecutionLoop:
                         raise ExecutionLoopError("No choices in LLM response")
 
                     message = response.choices[0].message
+
+                    # Get the content
+                    content = ""
+                    if isinstance(message.content, str):
+                        content = message.content
+                    else:
+                        content = str(message.content)
+
+                    # Notify thought content callback BEFORE checking tool calls
+                    has_tools = message.tool_calls is not None and len(message.tool_calls) > 0
+                    if self.on_thought_content:
+                        self.on_thought_content(content, has_tools)
 
                     # Add assistant message to conversation
                     if isinstance(message.content, str):
@@ -179,6 +210,9 @@ class ExecutionLoop:
                     if self.on_tool_call:
                         self.on_tool_call(message.tool_calls)
 
+                    # Track message count before adding tool results
+                    message_count_before = len(conversation.messages)
+
                     # Execute tool calls
                     await executor.add_tool_results_to_conversation(
                         tool_calls=message.tool_calls,
@@ -187,13 +221,32 @@ class ExecutionLoop:
 
                     # Notify tool result callback for each tool call
                     if self.on_tool_result:
-                        # Find the tool result messages and notify
-                        for tool_call in message.tool_calls:
-                            tool_name = tool_call.function.name
-                            # Look for the corresponding tool result in conversation
-                            # (We'll just use a placeholder since we don't have easy access here;
-                            # the chat command can find it from the conversation messages)
-                            self.on_tool_result(tool_name, "", False)
+                        # Find the newly added tool result messages
+                        new_messages = conversation.messages[message_count_before:]
+                        tool_call_idx = 0
+
+                        for msg in new_messages:
+                            if msg.role == "tool":
+                                if tool_call_idx < len(message.tool_calls):
+                                    tool_call = message.tool_calls[tool_call_idx]
+                                    tool_name = tool_call.function.name
+                                    tool_call_id = tool_call.id
+
+                                    # Extract content
+                                    content = ""
+                                    is_error = False
+                                    if isinstance(msg.content, str):
+                                        content = msg.content
+                                    elif isinstance(msg.content, list):
+                                        from mini_claude.services.conversation import ToolResultContent
+                                        for block in msg.content:
+                                            if isinstance(block, ToolResultContent):
+                                                content = block.content
+                                                is_error = block.is_error
+                                                break
+
+                                    self.on_tool_result(tool_name, content, is_error, tool_call_id)
+                                    tool_call_idx += 1
 
                     tool_call_count += len(message.tool_calls)
 
@@ -209,6 +262,10 @@ class ExecutionLoop:
         finally:
             if should_close_client and hasattr(client, 'close'):
                 await client.close()
+
+        # Notify loop end
+        if self.on_loop_end:
+            self.on_loop_end(tool_call_count)
 
         return conversation
 
